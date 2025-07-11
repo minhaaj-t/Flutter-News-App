@@ -68,6 +68,7 @@ Your NewsAI Pro Flutter app has been built and is ready to be deployed to multip
 
 ## 📞 **Need Help?**
 
+- **Developer**: [MiNHAJ](https://www.minhaj.pro) - [hey@minhaj.pro](mailto:hey@minhaj.pro)
 - **Deployment Guide**: See `DEPLOYMENT.md`
 - **Quick Scripts**: Run `deploy.bat` (Windows) or `deploy.sh` (Mac/Linux)
 - **GitHub Issues**: Create an issue in your repository

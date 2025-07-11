@@ -264,6 +264,7 @@ Add to `web/index.html`:
 
 ## 📞 **Support**
 
+- **Developer**: [MiNHAJ](https://www.minhaj.pro) - [hey@minhaj.pro](mailto:hey@minhaj.pro)
 - **GitHub Issues**: [Create issue](https://github.com/minhaaj-t/Flutter-News-App/issues)
 - **Documentation**: [Flutter Web](https://flutter.dev/web)
 - **Community**: [Flutter Discord](https://discord.gg/flutter)

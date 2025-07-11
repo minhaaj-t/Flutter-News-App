@@ -262,22 +262,23 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **New York Times** - For RSS feed access
 - **Open Source Community** - For various packages
 - **Beta Testers** - For valuable feedback
+- **Developer** - [MiNHAJ](https://www.minhaj.pro) - [hey@minhaj.pro](mailto:hey@minhaj.pro)
 
 ---
 
 ## 📞 **Support & Contact**
 
-- **Email**: support@newsai-pro.com
-- **Discord**: [Join our community](https://discord.gg/newsai-pro)
-- **Twitter**: [@NewsAIPro](https://twitter.com/NewsAIPro)
+- **Developer**: [MiNHAJ](https://www.minhaj.pro) - [hey@minhaj.pro](mailto:hey@minhaj.pro)
+- **Website**: [www.minhaj.pro](https://www.minhaj.pro)
+- **Email**: [hey@minhaj.pro](mailto:hey@minhaj.pro)
 - **GitHub Issues**: [Report bugs](https://github.com/minhaaj-t/Flutter-News-App/issues)
 
 ---
 
 <div align="center">
 
-**Made with ❤️ by the NewsAI Pro Team**
+**Made with ❤️ by [MiNHAJ](https://www.minhaj.pro)**
 
-[⭐ Star this repo](https://github.com/minhaaj-t/Flutter-News-App) • [🐛 Report Issues](https://github.com/minhaaj-t/Flutter-News-App/issues) • [📖 Documentation](https://docs.newsai-pro.com)
+[⭐ Star this repo](https://github.com/minhaaj-t/Flutter-News-App) • [🐛 Report Issues](https://github.com/minhaaj-t/Flutter-News-App/issues) • [🌐 Developer Website](https://www.minhaj.pro) • [📧 Contact](mailto:hey@minhaj.pro)
 
 </div>
