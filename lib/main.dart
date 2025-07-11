@@ -1,13 +1,226 @@
 import 'dart:async';
 import 'dart:math';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:xml/xml.dart' as xml;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await initializeNotifications();
   runApp(const MyApp());
+}
+
+// Initialize notifications
+Future<void> initializeNotifications() async {
+  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+      FlutterLocalNotificationsPlugin();
+
+  const AndroidInitializationSettings initializationSettingsAndroid =
+      AndroidInitializationSettings('@mipmap/ic_launcher');
+
+  const InitializationSettings initializationSettings = InitializationSettings(
+    android: initializationSettingsAndroid,
+  );
+
+  await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+}
+
+// Service classes for new features
+class StorageService {
+  static const String _bookmarksKey = 'bookmarks';
+  static const String _readingHistoryKey = 'reading_history';
+  static const String _readingProgressKey = 'reading_progress';
+  static const String _userPreferencesKey = 'user_preferences';
+  static const String _offlineArticlesKey = 'offline_articles';
+
+  // Bookmark management
+  static Future<List<String>> getBookmarks() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(_bookmarksKey) ?? [];
+  }
+
+  static Future<void> addBookmark(String articleId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final bookmarks = await getBookmarks();
+    if (!bookmarks.contains(articleId)) {
+      bookmarks.add(articleId);
+      await prefs.setStringList(_bookmarksKey, bookmarks);
+    }
+  }
+
+  static Future<void> removeBookmark(String articleId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final bookmarks = await getBookmarks();
+    bookmarks.remove(articleId);
+    await prefs.setStringList(_bookmarksKey, bookmarks);
+  }
+
+  // Reading history
+  static Future<List<String>> getReadingHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(_readingHistoryKey) ?? [];
+  }
+
+  static Future<void> addToHistory(String articleId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final history = await getReadingHistory();
+    history.remove(articleId); // Remove if exists
+    history.insert(0, articleId); // Add to beginning
+    if (history.length > 100) history.removeLast(); // Keep only last 100
+    await prefs.setStringList(_readingHistoryKey, history);
+  }
+
+  // Reading progress
+  static Future<Map<String, ReadingProgress>> getReadingProgress() async {
+    final prefs = await SharedPreferences.getInstance();
+    final progressJson = prefs.getString(_readingProgressKey);
+    if (progressJson != null) {
+      final Map<String, dynamic> data = json.decode(progressJson);
+      return data.map(
+        (key, value) => MapEntry(key, ReadingProgress.fromJson(value)),
+      );
+    }
+    return {};
+  }
+
+  static Future<void> saveReadingProgress(ReadingProgress progress) async {
+    final prefs = await SharedPreferences.getInstance();
+    final allProgress = await getReadingProgress();
+    allProgress[progress.articleId] = progress;
+    await prefs.setString(_readingProgressKey, json.encode(allProgress));
+  }
+
+  // User preferences
+  static Future<UserPreferences> getUserPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    final prefsJson = prefs.getString(_userPreferencesKey);
+    if (prefsJson != null) {
+      return UserPreferences.fromJson(json.decode(prefsJson));
+    }
+    return UserPreferences();
+  }
+
+  static Future<void> saveUserPreferences(UserPreferences preferences) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _userPreferencesKey,
+      json.encode(preferences.toJson()),
+    );
+  }
+
+  // Offline articles
+  static Future<void> saveOfflineArticle(NewsArticle article) async {
+    final prefs = await SharedPreferences.getInstance();
+    final offlineArticles = await getOfflineArticles();
+    offlineArticles[article.id] = article;
+    await prefs.setString(_offlineArticlesKey, json.encode(offlineArticles));
+  }
+
+  static Future<Map<String, NewsArticle>> getOfflineArticles() async {
+    final prefs = await SharedPreferences.getInstance();
+    final articlesJson = prefs.getString(_offlineArticlesKey);
+    if (articlesJson != null) {
+      final Map<String, dynamic> data = json.decode(articlesJson);
+      return data.map(
+        (key, value) => MapEntry(key, NewsArticle.fromJson(value)),
+      );
+    }
+    return {};
+  }
+
+  static Future<void> clearReadingHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_readingHistoryKey);
+  }
+
+  static Future<void> clearOfflineArticles() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_offlineArticlesKey);
+  }
+}
+
+class TTSService {
+  static final FlutterTts _tts = FlutterTts();
+  static bool _isInitialized = false;
+
+  static Future<void> initialize() async {
+    if (!_isInitialized) {
+      await _tts.setLanguage("en-US");
+      await _tts.setSpeechRate(0.5);
+      await _tts.setVolume(1.0);
+      await _tts.setPitch(1.0);
+      _isInitialized = true;
+    }
+  }
+
+  static Future<void> speak(String text) async {
+    await initialize();
+    await _tts.speak(text);
+  }
+
+  static Future<void> stop() async {
+    await _tts.stop();
+  }
+
+  static Future<void> pause() async {
+    await _tts.pause();
+  }
+
+  static Future<void> resume() async {
+    await _tts.speak(""); // Flutter TTS doesn't have resume, so we restart
+  }
+}
+
+class NotificationService {
+  static final FlutterLocalNotificationsPlugin _notifications =
+      FlutterLocalNotificationsPlugin();
+
+  static Future<void> showBreakingNewsNotification(
+    String title,
+    String body,
+  ) async {
+    const AndroidNotificationDetails androidDetails =
+        AndroidNotificationDetails(
+          'breaking_news',
+          'Breaking News',
+          channelDescription: 'Notifications for breaking news',
+          importance: Importance.high,
+          priority: Priority.high,
+        );
+
+    const NotificationDetails details = NotificationDetails(
+      android: androidDetails,
+    );
+    await _notifications.show(0, title, body, details);
+  }
+
+  static Future<void> showReadingReminder() async {
+    const AndroidNotificationDetails androidDetails =
+        AndroidNotificationDetails(
+          'reading_reminder',
+          'Reading Reminders',
+          channelDescription: 'Reminders to continue reading',
+          importance: Importance.defaultImportance,
+          priority: Priority.defaultPriority,
+        );
+
+    const NotificationDetails details = NotificationDetails(
+      android: androidDetails,
+    );
+    await _notifications.show(
+      1,
+      'Reading Reminder',
+      'Continue reading your saved articles!',
+      details,
+    );
+  }
 }
 
 // Multiple RSS feeds for diverse content
@@ -75,6 +288,7 @@ class NewsArticle {
   final String source;
   final String author;
   final int readTime; // Estimated read time in minutes
+  final String id; // Unique identifier for the article
 
   NewsArticle({
     required this.title,
@@ -87,7 +301,126 @@ class NewsArticle {
     required this.source,
     required this.author,
     required this.readTime,
+  }) : id = '${source}_${title.hashCode}';
+
+  // Convert to JSON for storage
+  Map<String, dynamic> toJson() {
+    return {
+      'title': title,
+      'summary': summary,
+      'imageUrl': imageUrl,
+      'content': content,
+      'categories': categories,
+      'link': link,
+      'pubDate': pubDate?.toIso8601String(),
+      'source': source,
+      'author': author,
+      'readTime': readTime,
+      'id': id,
+    };
+  }
+
+  // Create from JSON
+  factory NewsArticle.fromJson(Map<String, dynamic> json) {
+    return NewsArticle(
+      title: json['title'] ?? '',
+      summary: json['summary'] ?? '',
+      imageUrl: json['imageUrl'] ?? '',
+      content: json['content'] ?? '',
+      categories: List<String>.from(json['categories'] ?? []),
+      link: json['link'] ?? '',
+      pubDate: json['pubDate'] != null ? DateTime.parse(json['pubDate']) : null,
+      source: json['source'] ?? '',
+      author: json['author'] ?? '',
+      readTime: json['readTime'] ?? 1,
+    );
+  }
+}
+
+// User preferences and settings
+class UserPreferences {
+  final bool isDarkMode;
+  final double fontSize;
+  final bool enableNotifications;
+  final bool enableTTS;
+  final List<String> favoriteCategories;
+
+  UserPreferences({
+    this.isDarkMode = false,
+    this.fontSize = 16.0,
+    this.enableNotifications = true,
+    this.enableTTS = false,
+    this.favoriteCategories = const [],
   });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'isDarkMode': isDarkMode,
+      'fontSize': fontSize,
+      'enableNotifications': enableNotifications,
+      'enableTTS': enableTTS,
+      'favoriteCategories': favoriteCategories,
+    };
+  }
+
+  factory UserPreferences.fromJson(Map<String, dynamic> json) {
+    return UserPreferences(
+      isDarkMode: json['isDarkMode'] ?? false,
+      fontSize: json['fontSize']?.toDouble() ?? 16.0,
+      enableNotifications: json['enableNotifications'] ?? true,
+      enableTTS: json['enableTTS'] ?? false,
+      favoriteCategories: List<String>.from(json['favoriteCategories'] ?? []),
+    );
+  }
+
+  UserPreferences copyWith({
+    bool? isDarkMode,
+    double? fontSize,
+    bool? enableNotifications,
+    bool? enableTTS,
+    List<String>? favoriteCategories,
+  }) {
+    return UserPreferences(
+      isDarkMode: isDarkMode ?? this.isDarkMode,
+      fontSize: fontSize ?? this.fontSize,
+      enableNotifications: enableNotifications ?? this.enableNotifications,
+      enableTTS: enableTTS ?? this.enableTTS,
+      favoriteCategories: favoriteCategories ?? this.favoriteCategories,
+    );
+  }
+}
+
+// Reading progress tracking
+class ReadingProgress {
+  final String articleId;
+  final double progress; // 0.0 to 1.0
+  final DateTime lastRead;
+  final int timeSpent; // in seconds
+
+  ReadingProgress({
+    required this.articleId,
+    required this.progress,
+    required this.lastRead,
+    required this.timeSpent,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'articleId': articleId,
+      'progress': progress,
+      'lastRead': lastRead.toIso8601String(),
+      'timeSpent': timeSpent,
+    };
+  }
+
+  factory ReadingProgress.fromJson(Map<String, dynamic> json) {
+    return ReadingProgress(
+      articleId: json['articleId'] ?? '',
+      progress: json['progress']?.toDouble() ?? 0.0,
+      lastRead: DateTime.parse(json['lastRead']),
+      timeSpent: json['timeSpent'] ?? 0,
+    );
+  }
 }
 
 class Advertisement {
@@ -358,6 +691,11 @@ class _NewsHomeState extends State<NewsHome> with TickerProviderStateMixin {
   String _searchQuery = '';
   int _currentAdIndex = 0;
   bool _isPremium = false;
+  int _currentIndex = 0; // For bottom navigation
+  UserPreferences _userPreferences = UserPreferences();
+  List<String> _bookmarks = [];
+  List<String> _readingHistory = [];
+  Map<String, NewsArticle> _offlineArticles = {};
 
   @override
   void initState() {
@@ -367,6 +705,8 @@ class _NewsHomeState extends State<NewsHome> with TickerProviderStateMixin {
         .map((feed) => fetchNews(feed.url, feed.name))
         .toList();
 
+    _loadUserData();
+
     // Rotate advertisements
     Timer.periodic(const Duration(seconds: 8), (timer) {
       if (mounted) {
@@ -374,6 +714,27 @@ class _NewsHomeState extends State<NewsHome> with TickerProviderStateMixin {
           _currentAdIndex = (_currentAdIndex + 1) % advertisements.length;
         });
       }
+    });
+
+    // Show reading reminder notification
+    Timer.periodic(const Duration(hours: 6), (timer) {
+      if (_userPreferences.enableNotifications) {
+        NotificationService.showReadingReminder();
+      }
+    });
+  }
+
+  Future<void> _loadUserData() async {
+    final prefs = await StorageService.getUserPreferences();
+    final bookmarks = await StorageService.getBookmarks();
+    final history = await StorageService.getReadingHistory();
+    final offline = await StorageService.getOfflineArticles();
+
+    setState(() {
+      _userPreferences = prefs;
+      _bookmarks = bookmarks;
+      _readingHistory = history;
+      _offlineArticles = offline;
     });
   }
 
@@ -428,28 +789,72 @@ class _NewsHomeState extends State<NewsHome> with TickerProviderStateMixin {
               );
             },
           ),
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () => _showSettingsDialog(),
+          ),
         ],
-        bottom: TabBar(
-          controller: _tabController,
-          isScrollable: true,
-          tabs: rssFeeds
-              .map((feed) => Tab(icon: Icon(feed.icon), text: feed.name))
-              .toList(),
-        ),
+        bottom: _currentIndex == 0
+            ? TabBar(
+                controller: _tabController,
+                isScrollable: true,
+                tabs: rssFeeds
+                    .map((feed) => Tab(icon: Icon(feed.icon), text: feed.name))
+                    .toList(),
+              )
+            : null,
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: rssFeeds.asMap().entries.map((entry) {
-          final index = entry.key;
-          final feed = entry.value;
-          return _buildNewsTab(index, feed);
-        }).toList(),
+      body: _buildCurrentPage(),
+      bottomNavigationBar: BottomNavigationBar(
+        type: BottomNavigationBarType.fixed,
+        currentIndex: _currentIndex,
+        onTap: (index) {
+          setState(() {
+            _currentIndex = index;
+          });
+        },
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'News'),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.bookmark),
+            label: 'Bookmarks',
+          ),
+          BottomNavigationBarItem(icon: Icon(Icons.history), label: 'History'),
+          BottomNavigationBarItem(icon: Icon(Icons.download), label: 'Offline'),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
+        ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _refresh,
-        child: const Icon(Icons.refresh),
-      ),
+      floatingActionButton: _currentIndex == 0
+          ? FloatingActionButton(
+              onPressed: _refresh,
+              child: const Icon(Icons.refresh),
+            )
+          : null,
     );
+  }
+
+  Widget _buildCurrentPage() {
+    switch (_currentIndex) {
+      case 0:
+        return TabBarView(
+          controller: _tabController,
+          children: rssFeeds.asMap().entries.map((entry) {
+            final index = entry.key;
+            final feed = entry.value;
+            return _buildNewsTab(index, feed);
+          }).toList(),
+        );
+      case 1:
+        return _buildBookmarksPage();
+      case 2:
+        return _buildHistoryPage();
+      case 3:
+        return _buildOfflinePage();
+      case 4:
+        return _buildProfilePage();
+      default:
+        return const SizedBox.shrink();
+    }
   }
 
   Widget _buildNewsTab(int index, RSSFeed feed) {
@@ -597,7 +1002,7 @@ class _NewsHomeState extends State<NewsHome> with TickerProviderStateMixin {
               Text(
                 ad.title,
                 style: const TextStyle(
-                  fontSize: 18,
+                  fontSize: 16,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -612,7 +1017,10 @@ class _NewsHomeState extends State<NewsHome> with TickerProviderStateMixin {
                 child: ElevatedButton(
                   onPressed: () {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('${ad.ctaText} clicked!')),
+                      SnackBar(
+                        content: Text('${ad.ctaText} clicked!'),
+                        backgroundColor: ad.color,
+                      ),
                     );
                   },
                   style: ElevatedButton.styleFrom(
@@ -628,6 +1036,429 @@ class _NewsHomeState extends State<NewsHome> with TickerProviderStateMixin {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // Settings Dialog
+  void _showSettingsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text('Settings'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SwitchListTile(
+                  title: const Text('Dark Mode'),
+                  subtitle: const Text('Toggle dark/light theme'),
+                  value: _userPreferences.isDarkMode,
+                  onChanged: (value) {
+                    setDialogState(() {
+                      _userPreferences = _userPreferences.copyWith(
+                        isDarkMode: value,
+                      );
+                    });
+                  },
+                ),
+                ListTile(
+                  title: const Text('Font Size'),
+                  subtitle: Text('${_userPreferences.fontSize.round()}'),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.remove),
+                        onPressed: () {
+                          setDialogState(() {
+                            _userPreferences = _userPreferences.copyWith(
+                              fontSize: (_userPreferences.fontSize - 1).clamp(
+                                12.0,
+                                24.0,
+                              ),
+                            );
+                          });
+                        },
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.add),
+                        onPressed: () {
+                          setDialogState(() {
+                            _userPreferences = _userPreferences.copyWith(
+                              fontSize: (_userPreferences.fontSize + 1).clamp(
+                                12.0,
+                                24.0,
+                              ),
+                            );
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                SwitchListTile(
+                  title: const Text('Notifications'),
+                  subtitle: const Text('Enable push notifications'),
+                  value: _userPreferences.enableNotifications,
+                  onChanged: (value) {
+                    setDialogState(() {
+                      _userPreferences = _userPreferences.copyWith(
+                        enableNotifications: value,
+                      );
+                    });
+                  },
+                ),
+                SwitchListTile(
+                  title: const Text('Text-to-Speech'),
+                  subtitle: const Text('Enable TTS for articles'),
+                  value: _userPreferences.enableTTS,
+                  onChanged: (value) {
+                    setDialogState(() {
+                      _userPreferences = _userPreferences.copyWith(
+                        enableTTS: value,
+                      );
+                    });
+                  },
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () async {
+                  await StorageService.saveUserPreferences(_userPreferences);
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Settings saved!')),
+                  );
+                },
+                child: const Text('Save'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // Bookmarks Page
+  Widget _buildBookmarksPage() {
+    return FutureBuilder<List<NewsArticle>>(
+      future: _getBookmarkedArticles(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final articles = snapshot.data ?? [];
+        if (articles.isEmpty) {
+          return const Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.bookmark_border, size: 64, color: Colors.grey),
+                SizedBox(height: 16),
+                Text('No bookmarked articles yet'),
+                SizedBox(height: 8),
+                Text('Tap the bookmark icon on any article to save it here'),
+              ],
+            ),
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: articles.length,
+          itemBuilder: (context, i) {
+            final article = articles[i];
+            return NewsCard(
+              article: article,
+              feedColor: rssFeeds
+                  .firstWhere((f) => f.name == article.source)
+                  .color,
+              isPremium: _isPremium,
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // History Page
+  Widget _buildHistoryPage() {
+    return FutureBuilder<List<NewsArticle>>(
+      future: _getHistoryArticles(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final articles = snapshot.data ?? [];
+        if (articles.isEmpty) {
+          return const Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.history, size: 64, color: Colors.grey),
+                SizedBox(height: 16),
+                Text('No reading history yet'),
+                SizedBox(height: 8),
+                Text('Your reading history will appear here'),
+              ],
+            ),
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: articles.length,
+          itemBuilder: (context, i) {
+            final article = articles[i];
+            return NewsCard(
+              article: article,
+              feedColor: rssFeeds
+                  .firstWhere((f) => f.name == article.source)
+                  .color,
+              isPremium: _isPremium,
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Offline Page
+  Widget _buildOfflinePage() {
+    return FutureBuilder<Map<String, NewsArticle>>(
+      future: StorageService.getOfflineArticles(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final articles = snapshot.data?.values.toList() ?? [];
+        if (articles.isEmpty) {
+          return const Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.download, size: 64, color: Colors.grey),
+                SizedBox(height: 16),
+                Text('No offline articles'),
+                SizedBox(height: 8),
+                Text('Download articles to read offline'),
+              ],
+            ),
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: articles.length,
+          itemBuilder: (context, i) {
+            final article = articles[i];
+            return NewsCard(
+              article: article,
+              feedColor: rssFeeds
+                  .firstWhere((f) => f.name == article.source)
+                  .color,
+              isPremium: _isPremium,
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Profile Page
+  Widget _buildProfilePage() {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  CircleAvatar(
+                    radius: 40,
+                    backgroundColor: Colors.deepPurple,
+                    child: Icon(Icons.person, size: 40, color: Colors.white),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'News Reader',
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    _isPremium ? 'Premium Member' : 'Free User',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: _isPremium ? Colors.amber : Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Reading Statistics',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildStatItem(
+                    'Bookmarked Articles',
+                    _bookmarks.length.toString(),
+                  ),
+                  _buildStatItem(
+                    'Reading History',
+                    _readingHistory.length.toString(),
+                  ),
+                  _buildStatItem(
+                    'Offline Articles',
+                    _offlineArticles.length.toString(),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Quick Actions',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 16),
+                  ListTile(
+                    leading: const Icon(Icons.settings),
+                    title: const Text('Settings'),
+                    onTap: _showSettingsDialog,
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.clear_all),
+                    title: const Text('Clear History'),
+                    onTap: _clearHistory,
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.delete_sweep),
+                    title: const Text('Clear Offline Articles'),
+                    onTap: _clearOfflineArticles,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatItem(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label),
+          Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+
+  Future<List<NewsArticle>> _getBookmarkedArticles() async {
+    final allArticles = await Future.wait(_newsFutures);
+    final flatArticles = allArticles.expand((articles) => articles).toList();
+    return flatArticles
+        .where((article) => _bookmarks.contains(article.id))
+        .toList();
+  }
+
+  Future<List<NewsArticle>> _getHistoryArticles() async {
+    final allArticles = await Future.wait(_newsFutures);
+    final flatArticles = allArticles.expand((articles) => articles).toList();
+    return flatArticles
+        .where((article) => _readingHistory.contains(article.id))
+        .toList();
+  }
+
+  void _clearHistory() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Clear History'),
+        content: const Text(
+          'Are you sure you want to clear your reading history?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              await StorageService.clearReadingHistory();
+              setState(() {
+                _readingHistory.clear();
+              });
+              Navigator.pop(context);
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(const SnackBar(content: Text('History cleared!')));
+            },
+            child: const Text('Clear'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _clearOfflineArticles() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Clear Offline Articles'),
+        content: const Text(
+          'Are you sure you want to clear all offline articles?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              await StorageService.clearOfflineArticles();
+              setState(() {
+                _offlineArticles.clear();
+              });
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Offline articles cleared!')),
+              );
+            },
+            child: const Text('Clear'),
+          ),
+        ],
       ),
     );
   }
@@ -863,18 +1694,49 @@ class NewsDetailPage extends StatelessWidget {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.share),
-            onPressed: () {
+            icon: const Icon(Icons.volume_up),
+            onPressed: () async {
+              await TTSService.speak(article.content);
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Share feature coming soon!')),
+                const SnackBar(content: Text('Text-to-Speech started')),
               );
             },
           ),
           IconButton(
-            icon: const Icon(Icons.bookmark_border),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Article bookmarked!')),
+            icon: const Icon(Icons.share),
+            onPressed: () async {
+              await Share.share(
+                '${article.title}\n\n${article.summary}\n\nRead more: ${article.link}',
+                subject: article.title,
+              );
+            },
+          ),
+          FutureBuilder<bool>(
+            future: StorageService.getBookmarks().then(
+              (bookmarks) => bookmarks.contains(article.id),
+            ),
+            builder: (context, snapshot) {
+              final isBookmarked = snapshot.data ?? false;
+              return IconButton(
+                icon: Icon(
+                  isBookmarked ? Icons.bookmark : Icons.bookmark_border,
+                ),
+                onPressed: () async {
+                  if (isBookmarked) {
+                    await StorageService.removeBookmark(article.id);
+                  } else {
+                    await StorageService.addBookmark(article.id);
+                  }
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        isBookmarked
+                            ? 'Bookmark removed!'
+                            : 'Article bookmarked!',
+                      ),
+                    ),
+                  );
+                },
               );
             },
           ),
@@ -1049,11 +1911,14 @@ class NewsDetailPage extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: OutlinedButton.icon(
-                  icon: const Icon(Icons.bookmark_border),
-                  label: const Text('Bookmark'),
-                  onPressed: () {
+                  icon: const Icon(Icons.download),
+                  label: const Text('Download'),
+                  onPressed: () async {
+                    await StorageService.saveOfflineArticle(article);
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Article bookmarked!')),
+                      const SnackBar(
+                        content: Text('Article saved for offline reading!'),
+                      ),
                     );
                   },
                   style: OutlinedButton.styleFrom(
