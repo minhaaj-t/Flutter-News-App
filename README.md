@@ -34,17 +34,17 @@ NewsAI Pro isn't just another news app—it's your intelligent news companion th
 
 | Platform | Download Link | Version | Size |
 |----------|---------------|---------|------|
-| **Android** | [📥 APK Download](https://github.com/yourusername/newsai-pro/releases/latest/download/newsai-pro-android.apk) | v2.0.0 | 45MB |
+| **Android** | [📥 APK Download](https://github.com/minhaaj-t/Flutter-News-App/releases/latest/download/newsai-pro-android.apk) | v2.0.0 | 45MB |
 | **iOS** | [📥 App Store](https://apps.apple.com/app/newsai-pro/id123456789) | v2.0.0 | 52MB |
-| **Android (Beta)** | [📥 Beta APK](https://github.com/yourusername/newsai-pro/releases/latest/download/newsai-pro-android-beta.apk) | v2.1.0-beta | 47MB |
+| **Android (Beta)** | [📥 Beta APK](https://github.com/minhaaj-t/Flutter-News-App/releases/latest/download/newsai-pro-android-beta.apk) | v2.1.0-beta | 47MB |
 
 ### 💻 **Desktop Apps**
 
 | Platform | Download Link | Version | Size |
 |----------|---------------|---------|------|
-| **Windows** | [📥 Windows Installer](https://github.com/yourusername/newsai-pro/releases/latest/download/newsai-pro-windows.exe) | v2.0.0 | 89MB |
-| **macOS** | [📥 macOS App](https://github.com/yourusername/newsai-pro/releases/latest/download/newsai-pro-macos.dmg) | v2.0.0 | 92MB |
-| **Linux** | [📥 Linux AppImage](https://github.com/yourusername/newsai-pro/releases/latest/download/newsai-pro-linux.AppImage) | v2.0.0 | 87MB |
+| **Windows** | [📥 Windows Installer](https://github.com/minhaaj-t/Flutter-News-App/releases/latest/download/newsai-pro-windows.exe) | v2.0.0 | 89MB |
+| **macOS** | [📥 macOS App](https://github.com/minhaaj-t/Flutter-News-App/releases/latest/download/newsai-pro-macos.dmg) | v2.0.0 | 92MB |
+| **Linux** | [📥 Linux AppImage](https://github.com/minhaaj-t/Flutter-News-App/releases/latest/download/newsai-pro-linux.AppImage) | v2.0.0 | 87MB |
 
 ### 🌐 **Web App**
 
@@ -157,8 +157,8 @@ NewsAI Pro isn't just another news app—it's your intelligent news companion th
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/newsai-pro.git
-   cd newsai-pro
+   git clone https://github.com/minhaaj-t/Flutter-News-App.git
+   cd Flutter-News-App
    ```
 
 2. **Install dependencies**
@@ -270,7 +270,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **Email**: support@newsai-pro.com
 - **Discord**: [Join our community](https://discord.gg/newsai-pro)
 - **Twitter**: [@NewsAIPro](https://twitter.com/NewsAIPro)
-- **GitHub Issues**: [Report bugs](https://github.com/yourusername/newsai-pro/issues)
+- **GitHub Issues**: [Report bugs](https://github.com/minhaaj-t/Flutter-News-App/issues)
 
 ---
 
@@ -278,6 +278,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Made with ❤️ by the NewsAI Pro Team**
 
-[⭐ Star this repo](https://github.com/yourusername/newsai-pro) • [🐛 Report Issues](https://github.com/yourusername/newsai-pro/issues) • [📖 Documentation](https://docs.newsai-pro.com)
+[⭐ Star this repo](https://github.com/minhaaj-t/Flutter-News-App) • [🐛 Report Issues](https://github.com/minhaaj-t/Flutter-News-App/issues) • [📖 Documentation](https://docs.newsai-pro.com)
 
 </div>

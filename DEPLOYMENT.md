@@ -264,7 +264,7 @@ Add to `web/index.html`:
 
 ## 📞 **Support**
 
-- **GitHub Issues**: [Create issue](https://github.com/yourusername/your-repo/issues)
+- **GitHub Issues**: [Create issue](https://github.com/minhaaj-t/Flutter-News-App/issues)
 - **Documentation**: [Flutter Web](https://flutter.dev/web)
 - **Community**: [Flutter Discord](https://discord.gg/flutter)
 

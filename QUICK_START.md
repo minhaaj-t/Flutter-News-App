@@ -9,16 +9,16 @@ Your NewsAI Pro Flutter app has been built and is ready to be deployed to multip
 ## 📱 **Immediate Deployment Options**
 
 ### **Option 1: GitHub Pages (Easiest)**
-1. **Create a GitHub repository**
+1. **Your GitHub repository is already created**: [https://github.com/minhaaj-t/Flutter-News-App](https://github.com/minhaaj-t/Flutter-News-App)
 2. **Push your code:**
    ```bash
-   git remote add origin https://github.com/YOUR_USERNAME/YOUR_REPO_NAME.git
+   git remote add origin https://github.com/minhaaj-t/Flutter-News-App.git
    git push -u origin main
    ```
 3. **Enable GitHub Pages:**
    - Go to repository Settings → Pages
    - Select "GitHub Actions" as source
-   - Your app will be live at: `https://YOUR_USERNAME.github.io/YOUR_REPO_NAME`
+   - Your app will be live at: `https://minhaaj-t.github.io/Flutter-News-App`
 
 ### **Option 2: Netlify (Drag & Drop)**
 1. Go to [netlify.com](https://netlify.com)
