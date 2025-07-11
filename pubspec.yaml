@@ -38,6 +38,7 @@ dependencies:
   flutter_tts: ^3.8.5
   share_plus: ^7.2.1
   flutter_local_notifications: ^16.3.2
+  crypto: ^3.0.3
 
 dev_dependencies:
   flutter_test:

@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:crypto/crypto.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -144,6 +145,138 @@ class StorageService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_offlineArticlesKey);
   }
+
+  // Social features
+  static const String _commentsKey = 'comments';
+  static const String _likesKey = 'likes';
+  static const String _userProfileKey = 'user_profile';
+
+  static Future<List<Comment>> getComments(String articleId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final commentsJson = prefs.getString('${_commentsKey}_$articleId');
+    if (commentsJson != null) {
+      final List<dynamic> data = json.decode(commentsJson);
+      return data.map((json) => Comment.fromJson(json)).toList();
+    }
+    return [];
+  }
+
+  static Future<void> addComment(Comment comment) async {
+    final prefs = await SharedPreferences.getInstance();
+    final comments = await getComments(comment.articleId);
+    comments.add(comment);
+    await prefs.setString(
+      '${_commentsKey}_${comment.articleId}',
+      json.encode(comments),
+    );
+  }
+
+  static Future<void> likeArticle(String articleId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final likes = prefs.getStringList(_likesKey) ?? [];
+    if (!likes.contains(articleId)) {
+      likes.add(articleId);
+      await prefs.setStringList(_likesKey, likes);
+    }
+  }
+
+  static Future<void> unlikeArticle(String articleId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final likes = prefs.getStringList(_likesKey) ?? [];
+    likes.remove(articleId);
+    await prefs.setStringList(_likesKey, likes);
+  }
+
+  static Future<bool> isArticleLiked(String articleId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final likes = prefs.getStringList(_likesKey) ?? [];
+    return likes.contains(articleId);
+  }
+
+  // AI and ML features
+  static const String _userBehaviorKey = 'user_behavior';
+  static const String _recommendationsKey = 'recommendations';
+
+  static Future<Map<String, dynamic>> getUserBehavior() async {
+    final prefs = await SharedPreferences.getInstance();
+    final behaviorJson = prefs.getString(_userBehaviorKey);
+    if (behaviorJson != null) {
+      return json.decode(behaviorJson);
+    }
+    return {
+      'readArticles': [],
+      'likedCategories': {},
+      'readingTime': {},
+      'searchHistory': [],
+    };
+  }
+
+  static Future<void> updateUserBehavior(
+    String articleId,
+    String category,
+    int readTime,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final behavior = await getUserBehavior();
+
+    // Update read articles
+    final readArticles = List<String>.from(behavior['readArticles'] ?? []);
+    if (!readArticles.contains(articleId)) {
+      readArticles.add(articleId);
+    }
+
+    // Update category preferences
+    final likedCategories = Map<String, int>.from(
+      behavior['likedCategories'] ?? {},
+    );
+    likedCategories[category] = (likedCategories[category] ?? 0) + 1;
+
+    // Update reading time
+    final readingTime = Map<String, int>.from(behavior['readingTime'] ?? {});
+    readingTime[articleId] = readTime;
+
+    behavior['readArticles'] = readArticles;
+    behavior['likedCategories'] = likedCategories;
+    behavior['readingTime'] = readingTime;
+
+    await prefs.setString(_userBehaviorKey, json.encode(behavior));
+  }
+
+  static Future<List<AIRecommendation>> getRecommendations() async {
+    final prefs = await SharedPreferences.getInstance();
+    final recommendationsJson = prefs.getString(_recommendationsKey);
+    if (recommendationsJson != null) {
+      final List<dynamic> data = json.decode(recommendationsJson);
+      return data
+          .map(
+            (json) => AIRecommendation(
+              articleId: json['articleId'],
+              score: json['score']?.toDouble() ?? 0.0,
+              reason: json['reason'] ?? '',
+              tags: List<String>.from(json['tags'] ?? []),
+            ),
+          )
+          .toList();
+    }
+    return [];
+  }
+
+  static Future<void> saveRecommendations(
+    List<AIRecommendation> recommendations,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final data = recommendations
+        .map(
+          (rec) => {
+            'articleId': rec.articleId,
+            'score': rec.score,
+            'reason': rec.reason,
+            'tags': rec.tags,
+          },
+        )
+        .toList();
+    await prefs.setString(_recommendationsKey, json.encode(data));
+  }
 }
 
 class TTSService {
@@ -220,6 +353,218 @@ class NotificationService {
       'Continue reading your saved articles!',
       details,
     );
+  }
+}
+
+class AIService {
+  // AI-powered article recommendations
+  static Future<List<AIRecommendation>> generateRecommendations(
+    List<NewsArticle> allArticles,
+  ) async {
+    final behavior = await StorageService.getUserBehavior();
+    final likedCategories = Map<String, int>.from(
+      behavior['likedCategories'] ?? {},
+    );
+    final readArticles = List<String>.from(behavior['readArticles'] ?? []);
+
+    final recommendations = <AIRecommendation>[];
+
+    for (final article in allArticles) {
+      if (readArticles.contains(article.id)) continue;
+
+      double score = 0.0;
+      String reason = '';
+      final tags = <String>[];
+
+      // Category preference scoring
+      for (final category in article.categories) {
+        final categoryScore = likedCategories[category] ?? 0;
+        score += categoryScore * 0.3;
+        if (categoryScore > 0) {
+          tags.add(category);
+          reason = 'Based on your interest in $category';
+        }
+      }
+
+      // Content similarity scoring (simplified)
+      final contentWords = article.content.toLowerCase().split(' ');
+      final titleWords = article.title.toLowerCase().split(' ');
+
+      // Check for trending keywords
+      final trendingKeywords = ['breaking', 'exclusive', 'latest', 'update'];
+      for (final keyword in trendingKeywords) {
+        if (contentWords.contains(keyword) || titleWords.contains(keyword)) {
+          score += 0.2;
+          tags.add(keyword);
+        }
+      }
+
+      // Author preference (if user has read articles from same author)
+      final authorArticles = readArticles.where((id) {
+        final readArticle = allArticles.firstWhere((a) => a.id == id);
+        return readArticle.author == article.author;
+      }).length;
+      score += authorArticles * 0.1;
+
+      // Read time preference
+      final avgReadTime = _calculateAverageReadTime(behavior);
+      if ((article.readTime - avgReadTime).abs() <= 2) {
+        score += 0.15;
+      }
+
+      if (score > 0.1) {
+        recommendations.add(
+          AIRecommendation(
+            articleId: article.id,
+            score: score,
+            reason: reason.isNotEmpty ? reason : 'Recommended for you',
+            tags: tags,
+          ),
+        );
+      }
+    }
+
+    // Sort by score and return top recommendations
+    recommendations.sort((a, b) => b.score.compareTo(a.score));
+    return recommendations.take(10).toList();
+  }
+
+  static double _calculateAverageReadTime(Map<String, dynamic> behavior) {
+    final readingTime = Map<String, int>.from(behavior['readingTime'] ?? {});
+    if (readingTime.isEmpty) return 5.0; // Default average
+
+    final totalTime = readingTime.values.reduce((a, b) => a + b);
+    return totalTime / readingTime.length;
+  }
+
+  // Generate trending topics
+  static List<TrendingTopic> generateTrendingTopics(
+    List<NewsArticle> articles,
+  ) {
+    final categoryCounts = <String, int>{};
+    final keywordCounts = <String, int>{};
+
+    for (final article in articles) {
+      // Count categories
+      for (final category in article.categories) {
+        categoryCounts[category] = (categoryCounts[category] ?? 0) + 1;
+      }
+
+      // Count keywords in title and content
+      final words = '${article.title} ${article.content}'.toLowerCase().split(
+        ' ',
+      );
+      for (final word in words) {
+        if (word.length > 3 && !_isStopWord(word)) {
+          keywordCounts[word] = (keywordCounts[word] ?? 0) + 1;
+        }
+      }
+    }
+
+    final trendingTopics = <TrendingTopic>[];
+    final colors = [
+      Colors.red,
+      Colors.blue,
+      Colors.green,
+      Colors.orange,
+      Colors.purple,
+    ];
+
+    // Top categories
+    final sortedCategories = categoryCounts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    for (int i = 0; i < sortedCategories.take(5).length; i++) {
+      final entry = sortedCategories[i];
+      trendingTopics.add(
+        TrendingTopic(
+          name: entry.key,
+          articleCount: entry.value,
+          trendScore: entry.value / articles.length,
+          relatedKeywords: _getRelatedKeywords(entry.key, keywordCounts),
+          color: colors[i % colors.length],
+        ),
+      );
+    }
+
+    return trendingTopics;
+  }
+
+  static bool _isStopWord(String word) {
+    const stopWords = {
+      'the',
+      'a',
+      'an',
+      'and',
+      'or',
+      'but',
+      'in',
+      'on',
+      'at',
+      'to',
+      'for',
+      'of',
+      'with',
+      'by',
+      'is',
+      'are',
+      'was',
+      'were',
+      'be',
+      'been',
+      'have',
+      'has',
+      'had',
+      'do',
+      'does',
+      'did',
+      'will',
+      'would',
+      'could',
+      'should',
+      'may',
+      'might',
+      'can',
+      'this',
+      'that',
+      'these',
+      'those',
+      'i',
+      'you',
+      'he',
+      'she',
+      'it',
+      'we',
+      'they',
+      'me',
+      'him',
+      'her',
+      'us',
+      'them',
+    };
+    return stopWords.contains(word);
+  }
+
+  static List<String> _getRelatedKeywords(
+    String category,
+    Map<String, int> keywordCounts,
+  ) {
+    final related = <String>[];
+    final categoryWords = category.toLowerCase().split(' ');
+
+    for (final entry in keywordCounts.entries) {
+      if (entry.value > 2) {
+        // Minimum frequency
+        for (final word in categoryWords) {
+          if (entry.key.contains(word) || word.contains(entry.key)) {
+            related.add(entry.key);
+            break;
+          }
+        }
+      }
+    }
+
+    return related.take(5).toList();
   }
 }
 
@@ -419,6 +764,145 @@ class ReadingProgress {
       progress: json['progress']?.toDouble() ?? 0.0,
       lastRead: DateTime.parse(json['lastRead']),
       timeSpent: json['timeSpent'] ?? 0,
+    );
+  }
+}
+
+// Social features - Comments
+class Comment {
+  final String id;
+  final String articleId;
+  final String userId;
+  final String userName;
+  final String content;
+  final DateTime timestamp;
+  final int likes;
+  final List<String> replies;
+
+  Comment({
+    required this.id,
+    required this.articleId,
+    required this.userId,
+    required this.userName,
+    required this.content,
+    required this.timestamp,
+    this.likes = 0,
+    this.replies = const [],
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'articleId': articleId,
+      'userId': userId,
+      'userName': userName,
+      'content': content,
+      'timestamp': timestamp.toIso8601String(),
+      'likes': likes,
+      'replies': replies,
+    };
+  }
+
+  factory Comment.fromJson(Map<String, dynamic> json) {
+    return Comment(
+      id: json['id'] ?? '',
+      articleId: json['articleId'] ?? '',
+      userId: json['userId'] ?? '',
+      userName: json['userName'] ?? '',
+      content: json['content'] ?? '',
+      timestamp: DateTime.parse(json['timestamp']),
+      likes: json['likes'] ?? 0,
+      replies: List<String>.from(json['replies'] ?? []),
+    );
+  }
+}
+
+// Trending topics
+class TrendingTopic {
+  final String name;
+  final int articleCount;
+  final double trendScore;
+  final List<String> relatedKeywords;
+  final Color color;
+
+  TrendingTopic({
+    required this.name,
+    required this.articleCount,
+    required this.trendScore,
+    required this.relatedKeywords,
+    required this.color,
+  });
+}
+
+// AI Recommendation
+class AIRecommendation {
+  final String articleId;
+  final double score;
+  final String reason;
+  final List<String> tags;
+
+  AIRecommendation({
+    required this.articleId,
+    required this.score,
+    required this.reason,
+    required this.tags,
+  });
+}
+
+// Search filters
+class SearchFilters {
+  List<String> categories;
+  List<String> sources;
+  DateTimeRange? dateRange;
+  int? minReadTime;
+  int? maxReadTime;
+  bool onlyBookmarked;
+  bool onlyOffline;
+
+  SearchFilters({
+    this.categories = const [],
+    this.sources = const [],
+    this.dateRange,
+    this.minReadTime,
+    this.maxReadTime,
+    this.onlyBookmarked = false,
+    this.onlyOffline = false,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'categories': categories,
+      'sources': sources,
+      'dateRange': dateRange != null
+          ? {
+              'start': dateRange!.start.toIso8601String(),
+              'end': dateRange!.end.toIso8601String(),
+            }
+          : null,
+      'minReadTime': minReadTime,
+      'maxReadTime': maxReadTime,
+      'onlyBookmarked': onlyBookmarked,
+      'onlyOffline': onlyOffline,
+    };
+  }
+
+  factory SearchFilters.fromJson(Map<String, dynamic> json) {
+    DateTimeRange? dateRange;
+    if (json['dateRange'] != null) {
+      dateRange = DateTimeRange(
+        start: DateTime.parse(json['dateRange']['start']),
+        end: DateTime.parse(json['dateRange']['end']),
+      );
+    }
+
+    return SearchFilters(
+      categories: List<String>.from(json['categories'] ?? []),
+      sources: List<String>.from(json['sources'] ?? []),
+      dateRange: dateRange,
+      minReadTime: json['minReadTime'],
+      maxReadTime: json['maxReadTime'],
+      onlyBookmarked: json['onlyBookmarked'] ?? false,
+      onlyOffline: json['onlyOffline'] ?? false,
     );
   }
 }
@@ -696,6 +1180,10 @@ class _NewsHomeState extends State<NewsHome> with TickerProviderStateMixin {
   List<String> _bookmarks = [];
   List<String> _readingHistory = [];
   Map<String, NewsArticle> _offlineArticles = {};
+  List<AIRecommendation> _recommendations = [];
+  List<TrendingTopic> _trendingTopics = [];
+  SearchFilters _searchFilters = SearchFilters();
+  List<Comment> _comments = [];
 
   @override
   void initState() {
@@ -790,6 +1278,10 @@ class _NewsHomeState extends State<NewsHome> with TickerProviderStateMixin {
             },
           ),
           IconButton(
+            icon: const Icon(Icons.filter_list),
+            onPressed: () => _showAdvancedSearch(),
+          ),
+          IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () => _showSettingsDialog(),
           ),
@@ -816,11 +1308,17 @@ class _NewsHomeState extends State<NewsHome> with TickerProviderStateMixin {
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home), label: 'News'),
           BottomNavigationBarItem(
+            icon: Icon(Icons.psychology),
+            label: 'AI Feed',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.trending_up),
+            label: 'Trending',
+          ),
+          BottomNavigationBarItem(
             icon: Icon(Icons.bookmark),
             label: 'Bookmarks',
           ),
-          BottomNavigationBarItem(icon: Icon(Icons.history), label: 'History'),
-          BottomNavigationBarItem(icon: Icon(Icons.download), label: 'Offline'),
           BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
         ],
       ),
@@ -845,11 +1343,11 @@ class _NewsHomeState extends State<NewsHome> with TickerProviderStateMixin {
           }).toList(),
         );
       case 1:
-        return _buildBookmarksPage();
+        return _buildAIRecommendationsPage();
       case 2:
-        return _buildHistoryPage();
+        return _buildTrendingPage();
       case 3:
-        return _buildOfflinePage();
+        return _buildBookmarksPage();
       case 4:
         return _buildProfilePage();
       default:
@@ -1462,6 +1960,625 @@ class _NewsHomeState extends State<NewsHome> with TickerProviderStateMixin {
       ),
     );
   }
+
+  // AI Recommendations Page
+  Widget _buildAIRecommendationsPage() {
+    return FutureBuilder<List<List<NewsArticle>>>(
+      future: Future.wait(_newsFutures),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (!snapshot.hasData) {
+          return const Center(child: Text('No data available'));
+        }
+
+        final allArticles = snapshot.data!
+            .expand((articles) => articles)
+            .toList();
+
+        return FutureBuilder<List<AIRecommendation>>(
+          future: AIService.generateRecommendations(allArticles),
+          builder: (context, recSnapshot) {
+            if (recSnapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            final recommendations = recSnapshot.data ?? [];
+            if (recommendations.isEmpty) {
+              return const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.psychology, size: 64, color: Colors.grey),
+                    SizedBox(height: 16),
+                    Text('No recommendations yet'),
+                    SizedBox(height: 8),
+                    Text(
+                      'Read more articles to get personalized recommendations',
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            return ListView.builder(
+              padding: const EdgeInsets.all(16),
+              itemCount: recommendations.length,
+              itemBuilder: (context, i) {
+                final recommendation = recommendations[i];
+                final article = allArticles.firstWhere(
+                  (a) => a.id == recommendation.articleId,
+                  orElse: () => allArticles.first,
+                );
+
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // AI Recommendation Header
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Colors.purple.withOpacity(0.1),
+                              Colors.blue.withOpacity(0.1),
+                            ],
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.psychology,
+                              color: Colors.purple,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'AI Recommended',
+                                    style: TextStyle(
+                                      color: Colors.purple,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  Text(
+                                    recommendation.reason,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.purple.withOpacity(0.8),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.purple,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                '${(recommendation.score * 100).round()}%',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // Article Card
+                      NewsCard(
+                        article: article,
+                        feedColor: rssFeeds
+                            .firstWhere((f) => f.name == article.source)
+                            .color,
+                        isPremium: _isPremium,
+                      ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Trending Topics Page
+  Widget _buildTrendingPage() {
+    return FutureBuilder<List<List<NewsArticle>>>(
+      future: Future.wait(_newsFutures),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        if (!snapshot.hasData) {
+          return const Center(child: Text('No data available'));
+        }
+
+        final allArticles = snapshot.data!
+            .expand((articles) => articles)
+            .toList();
+        final trendingTopics = AIService.generateTrendingTopics(allArticles);
+
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            // Trending Topics Header
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.trending_up, color: Colors.orange),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'Trending Topics',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: trendingTopics.map((topic) {
+                        return InkWell(
+                          onTap: () => _filterByTopic(topic.name),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: topic.color.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: topic.color.withOpacity(0.3),
+                              ),
+                            ),
+                            child: Column(
+                              children: [
+                                Text(
+                                  topic.name,
+                                  style: TextStyle(
+                                    color: topic.color,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                Text(
+                                  '${topic.articleCount} articles',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: topic.color.withOpacity(0.7),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Trending Articles
+            ...trendingTopics.map((topic) {
+              final topicArticles = allArticles
+                  .where((article) => article.categories.contains(topic.name))
+                  .take(3)
+                  .toList();
+
+              if (topicArticles.isEmpty) return const SizedBox.shrink();
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 4,
+                          height: 20,
+                          decoration: BoxDecoration(
+                            color: topic.color,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          topic.name,
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: topic.color,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          '${topic.articleCount} articles',
+                          style: TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                      ],
+                    ),
+                  ),
+                  ...topicArticles.map(
+                    (article) => NewsCard(
+                      article: article,
+                      feedColor: topic.color,
+                      isPremium: _isPremium,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+              );
+            }).toList(),
+          ],
+        );
+      },
+    );
+  }
+
+  void _filterByTopic(String topic) {
+    setState(() {
+      _searchQuery = topic;
+      _currentIndex = 0; // Switch to news tab
+    });
+  }
+
+  // Advanced Search with Filters
+  Widget _buildAdvancedSearch() {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Advanced Search'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.clear),
+            onPressed: () {
+              setState(() {
+                _searchFilters = SearchFilters();
+              });
+            },
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          // Categories Filter
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Categories',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    children: rssFeeds.map((feed) {
+                      final isSelected = _searchFilters.categories.contains(
+                        feed.name,
+                      );
+                      return FilterChip(
+                        label: Text(feed.name),
+                        selected: isSelected,
+                        onSelected: (selected) {
+                          setState(() {
+                            if (selected) {
+                              _searchFilters.categories.add(feed.name);
+                            } else {
+                              _searchFilters.categories.remove(feed.name);
+                            }
+                          });
+                        },
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          // Read Time Filter
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Read Time',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          decoration: const InputDecoration(
+                            labelText: 'Min (minutes)',
+                            border: OutlineInputBorder(),
+                          ),
+                          keyboardType: TextInputType.number,
+                          onChanged: (value) {
+                            setState(() {
+                              _searchFilters.minReadTime = int.tryParse(value);
+                            });
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: TextFormField(
+                          decoration: const InputDecoration(
+                            labelText: 'Max (minutes)',
+                            border: OutlineInputBorder(),
+                          ),
+                          keyboardType: TextInputType.number,
+                          onChanged: (value) {
+                            setState(() {
+                              _searchFilters.maxReadTime = int.tryParse(value);
+                            });
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          // Additional Filters
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Additional Filters',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 12),
+                  SwitchListTile(
+                    title: const Text('Only Bookmarked'),
+                    value: _searchFilters.onlyBookmarked,
+                    onChanged: (value) {
+                      setState(() {
+                        _searchFilters.onlyBookmarked = value;
+                      });
+                    },
+                  ),
+                  SwitchListTile(
+                    title: const Text('Only Offline'),
+                    value: _searchFilters.onlyOffline,
+                    onChanged: (value) {
+                      setState(() {
+                        _searchFilters.onlyOffline = value;
+                      });
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 32),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _applySearchFilters();
+            },
+            style: ElevatedButton.styleFrom(
+              minimumSize: const Size(double.infinity, 50),
+            ),
+            child: const Text('Apply Filters'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _applySearchFilters() {
+    // Apply the search filters and update the UI
+    setState(() {
+      _currentIndex = 0; // Switch to news tab
+    });
+    // The filtering logic will be applied in the news tab
+  }
+
+  void _showAdvancedSearch() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          appBar: AppBar(
+            title: const Text('Advanced Search'),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.clear),
+                onPressed: () {
+                  setState(() {
+                    _searchFilters = SearchFilters();
+                  });
+                },
+              ),
+            ],
+          ),
+          body: _buildAdvancedSearchContent(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAdvancedSearchContent() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        // Categories Filter
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Categories',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  children: rssFeeds.map((feed) {
+                    final isSelected = _searchFilters.categories.contains(
+                      feed.name,
+                    );
+                    return FilterChip(
+                      label: Text(feed.name),
+                      selected: isSelected,
+                      onSelected: (selected) {
+                        setState(() {
+                          if (selected) {
+                            _searchFilters.categories.add(feed.name);
+                          } else {
+                            _searchFilters.categories.remove(feed.name);
+                          }
+                        });
+                      },
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        // Read Time Filter
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Read Time',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        decoration: const InputDecoration(
+                          labelText: 'Min (minutes)',
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.number,
+                        onChanged: (value) {
+                          setState(() {
+                            _searchFilters.minReadTime = int.tryParse(value);
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: TextFormField(
+                        decoration: const InputDecoration(
+                          labelText: 'Max (minutes)',
+                          border: OutlineInputBorder(),
+                        ),
+                        keyboardType: TextInputType.number,
+                        onChanged: (value) {
+                          setState(() {
+                            _searchFilters.maxReadTime = int.tryParse(value);
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        // Additional Filters
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Additional Filters',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                SwitchListTile(
+                  title: const Text('Only Bookmarked'),
+                  value: _searchFilters.onlyBookmarked,
+                  onChanged: (value) {
+                    setState(() {
+                      _searchFilters.onlyBookmarked = value;
+                    });
+                  },
+                ),
+                SwitchListTile(
+                  title: const Text('Only Offline'),
+                  value: _searchFilters.onlyOffline,
+                  onChanged: (value) {
+                    setState(() {
+                      _searchFilters.onlyOffline = value;
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 32),
+        ElevatedButton(
+          onPressed: () {
+            Navigator.pop(context);
+            _applySearchFilters();
+          },
+          style: ElevatedButton.styleFrom(
+            minimumSize: const Size(double.infinity, 50),
+          ),
+          child: const Text('Apply Filters'),
+        ),
+      ],
+    );
+  }
 }
 
 class NewsCard extends StatelessWidget {
@@ -1933,6 +3050,140 @@ class NewsDetailPage extends StatelessWidget {
 
           const SizedBox(height: 24),
 
+          // Social Features Section
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.grey[100],
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.people, color: feedColor),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Community',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: feedColor,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                // Like Button
+                FutureBuilder<bool>(
+                  future: StorageService.isArticleLiked(article.id),
+                  builder: (context, snapshot) {
+                    final isLiked = snapshot.data ?? false;
+                    return Row(
+                      children: [
+                        IconButton(
+                          icon: Icon(
+                            isLiked ? Icons.favorite : Icons.favorite_border,
+                            color: isLiked ? Colors.red : Colors.grey,
+                          ),
+                          onPressed: () async {
+                            if (isLiked) {
+                              await StorageService.unlikeArticle(article.id);
+                            } else {
+                              await StorageService.likeArticle(article.id);
+                            }
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  isLiked
+                                      ? 'Removed from likes'
+                                      : 'Added to likes',
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                        const Text('Like'),
+                        const SizedBox(width: 24),
+                        IconButton(
+                          icon: const Icon(Icons.comment),
+                          onPressed: () =>
+                              _showCommentsDialog(context, article.id),
+                        ),
+                        const Text('Comment'),
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(height: 16),
+                // Comments Preview
+                FutureBuilder<List<Comment>>(
+                  future: StorageService.getComments(article.id),
+                  builder: (context, snapshot) {
+                    final comments = snapshot.data ?? [];
+                    if (comments.isEmpty) {
+                      return const Text(
+                        'No comments yet. Be the first to comment!',
+                        style: TextStyle(fontSize: 14, color: Colors.grey),
+                      );
+                    }
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${comments.length} comments',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 8),
+                        ...comments
+                            .take(2)
+                            .map(
+                              (comment) => Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Text(
+                                          comment.userName,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          DateFormat(
+                                            'MMM dd',
+                                          ).format(comment.timestamp),
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: Colors.grey,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    Text(comment.content),
+                                  ],
+                                ),
+                              ),
+                            ),
+                        if (comments.length > 2)
+                          TextButton(
+                            onPressed: () =>
+                                _showCommentsDialog(context, article.id),
+                            child: Text('View all ${comments.length} comments'),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
           // Related articles placeholder
           Container(
             padding: const EdgeInsets.all(16),
@@ -1961,6 +3212,188 @@ class NewsDetailPage extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+
+  void _showCommentsDialog(BuildContext context, String articleId) {
+    showDialog(
+      context: context,
+      builder: (context) => CommentsDialog(articleId: articleId),
+    );
+  }
+}
+
+class CommentsDialog extends StatefulWidget {
+  final String articleId;
+
+  const CommentsDialog({super.key, required this.articleId});
+
+  @override
+  State<CommentsDialog> createState() => _CommentsDialogState();
+}
+
+class _CommentsDialogState extends State<CommentsDialog> {
+  final TextEditingController _commentController = TextEditingController();
+  final TextEditingController _nameController = TextEditingController();
+
+  @override
+  void dispose() {
+    _commentController.dispose();
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      child: Container(
+        width: double.maxFinite,
+        height: MediaQuery.of(context).size.height * 0.7,
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Text(
+                  'Comments',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            // Add Comment Section
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Add a comment',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _nameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Your name',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _commentController,
+                      decoration: const InputDecoration(
+                        labelText: 'Comment',
+                        border: OutlineInputBorder(),
+                      ),
+                      maxLines: 3,
+                    ),
+                    const SizedBox(height: 8),
+                    ElevatedButton(
+                      onPressed: () => _addComment(),
+                      child: const Text('Post Comment'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            // Comments List
+            Expanded(
+              child: FutureBuilder<List<Comment>>(
+                future: StorageService.getComments(widget.articleId),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  final comments = snapshot.data ?? [];
+                  if (comments.isEmpty) {
+                    return const Center(
+                      child: Text('No comments yet. Be the first to comment!'),
+                    );
+                  }
+
+                  return ListView.builder(
+                    itemCount: comments.length,
+                    itemBuilder: (context, index) {
+                      final comment = comments[index];
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Text(
+                                    comment.userName,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    DateFormat(
+                                      'MMM dd, yyyy • HH:mm',
+                                    ).format(comment.timestamp),
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(comment.content),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _addComment() {
+    if (_commentController.text.trim().isEmpty ||
+        _nameController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please fill in both name and comment')),
+      );
+      return;
+    }
+
+    final comment = Comment(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      articleId: widget.articleId,
+      userId: 'user_${DateTime.now().millisecondsSinceEpoch}',
+      userName: _nameController.text.trim(),
+      content: _commentController.text.trim(),
+      timestamp: DateTime.now(),
+    );
+
+    StorageService.addComment(comment);
+    _commentController.clear();
+    _nameController.clear();
+    setState(() {});
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Comment added successfully!')),
     );
   }
 }
