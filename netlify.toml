@@ -1,0 +1,28 @@
+[build]
+  publish = "build/web"
+  command = "flutter build web --release"
+
+[build.environment]
+  FLUTTER_VERSION = "3.16.0"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[build.processing]
+  skip_processing = false
+
+[build.processing.css]
+  bundle = true
+  minify = true
+
+[build.processing.js]
+  bundle = true
+  minify = true
+
+[build.processing.html]
+  pretty_urls = true
+
+[build.processing.images]
+  compress = true 
